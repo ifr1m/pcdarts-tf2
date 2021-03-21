@@ -16,7 +16,7 @@ using_cutout: False
 cutout_length: 16
 
 # training setting
-epoch: 2
+epoch: 4
 start_search_epoch: 2
 init_lr: 0.5
 lr_min: 0.0
