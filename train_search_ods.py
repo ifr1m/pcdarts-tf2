@@ -19,7 +19,6 @@ flags.DEFINE_string('gpu', '0', 'which gpu to use')
 
 def main(_):
     # init
-    tf.config.run_functions_eagerly(True)
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
 
@@ -36,10 +35,8 @@ def main(_):
     print("param size = {:f}MB".format(count_parameters_in_MB(sna.model)))
 
     # load dataset
-    # t_split = f"train[0%:{int(cfg['train_portion'] * 100)}%]"
-    # v_split = f"train[{int(cfg['train_portion'] * 100)}%:100%]"
-    t_split = f"train[0%:1%]"
-    v_split = f"train[1%:2%]"
+    t_split = f"train[0%:{int(cfg['train_portion'] * 100)}%]"
+    v_split = f"train[{int(cfg['train_portion'] * 100)}%:100%]"
 
     train_dataset, _, dataset_len = load_hyperkvasir_dataset(cfg['batch_size'], split=t_split, shuffle=True,
                                                              drop_remainder=True,
