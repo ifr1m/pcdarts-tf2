@@ -1,6 +1,7 @@
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
+from utils.dataset_utils import DSConfigurator
 
 _CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
 _CIFAR_STD = [0.24703233, 0.24348505, 0.26158768]
@@ -68,6 +69,7 @@ def _transform_data_cifar10(using_normalize, using_crop, using_flip,
             img = (img - mean) / std
 
         return img, labels
+
     return transform_data
 
 
@@ -94,3 +96,18 @@ def load_cifar10_dataset(batch_size, split='train', using_normalize=True,
     dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
     return dataset
+
+
+def load_hyperkvasir_dataset(batch_size, split='train', shuffle=True, drop_remainder=True, repeat=False):
+    dataset, info = tfds.load(name="hyperkvasir_li", split=split, with_info=True)
+
+    total_size = sum([v.num_examples for k, v in info.splits.items()])
+    ds_size = dataset.cardinality()
+
+    dsc = DSConfigurator(batch_size=batch_size, drop_remainder=drop_remainder, repeat=repeat, augment=True, cache=True,
+                         shuffle=shuffle, one_hot=False, number_of_classes=info.features['label'].num_classes,
+                         unpack_dict=True, resize_spec=(224, 224))
+
+    dataset = dsc.apply_config(dataset, min(ds_size, total_size))
+
+    return dataset, ds_size, total_size

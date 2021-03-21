@@ -1,7 +1,8 @@
-tensorflow-gpu==2.1.0
-tensorflow_datasets
+tensorflow==2.4.1
+tensorflow-datasets==4.2.0
 numpy
-opencv-python
+opencv-python==4.2.0.34
 PyYAML
 ipython
 graphviz
+split-folders==0.3.1
