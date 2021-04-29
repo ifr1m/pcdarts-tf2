@@ -35,8 +35,8 @@ def main(_):
     print("param size = {:f}MB".format(count_parameters_in_MB(sna.model)))
 
     # load dataset
-    t_split = "split_0+split_1[:80%]"
-    v_split = "split_1[-20%:]"
+    t_split = "split_0"
+    v_split = "split_1"
 
     train_dataset, _, dataset_len = load_hyperkvasir_dataset(cfg['batch_size'], split=t_split, shuffle=True,
                                                              drop_remainder=True,
