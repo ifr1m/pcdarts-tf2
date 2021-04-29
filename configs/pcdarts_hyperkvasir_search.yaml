@@ -4,7 +4,7 @@ input_size: 224
 init_channels: 16
 layers: 8
 num_classes: 23
-sub_name: 'pcdarts_hyperkvasir_search'
+sub_name: 'pcdarts_hyperkvasir_search_2'
 using_normalize: True
 
 # training dataset
@@ -18,10 +18,10 @@ cutout_length: 16
 # training setting
 epoch: 50
 start_search_epoch: 35
-init_lr: 0.5
+init_lr: 0.0084284
 lr_min: 0.0
 momentum: 0.9
-weights_decay: !!float 3e-5
+weights_decay: 0.00072962
 grad_clip: 5.0
 
 arch_learning_rate: !!float 6e-3
