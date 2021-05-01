@@ -25,6 +25,11 @@ def CosineAnnealingLR(initial_learning_rate, t_period, lr_min=0.):
         decay_steps=t_period, alpha=lr_min / initial_learning_rate)
 
 
+def CosineAnnealingWD(initial_wd, t_period, wd_min=0.0):
+    return tf.keras.experimental.CosineDecay(
+        initial_learning_rate=initial_wd,
+        decay_steps=t_period, alpha=wd_min / initial_wd)
+
 if __name__ == "__main__":
     # lr_scheduler = MultiStepLR(1e-4, [500, 1000, 2000, 3000], 0.5)
     # lr_scheduler = CosineAnnealingLR_Restart(2e-4, 2500, 1e-7)

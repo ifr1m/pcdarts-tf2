@@ -6,3 +6,4 @@ PyYAML
 ipython
 graphviz
 split-folders==0.3.1
+tensorflow-addons==0.12.0

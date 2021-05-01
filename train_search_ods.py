@@ -3,10 +3,11 @@ import os
 import tensorflow as tf
 from absl import app, flags, logging
 from absl.flags import FLAGS
+from tensorflow_addons.optimizers import SGDW, AdamW
 
 from modules.dataset import load_hyperkvasir_dataset
 from modules.losses import CrossEntropyLoss
-from modules.lr_scheduler import CosineAnnealingLR
+from modules.lr_scheduler import CosineAnnealingLR, CosineAnnealingWD
 from modules.models_search_ods import SearchODSNetArch
 from modules.utils import (
     set_memory_growth, load_yaml, count_parameters_in_MB, ProgressBar,
@@ -50,10 +51,15 @@ def main(_):
     learning_rate = CosineAnnealingLR(
         initial_learning_rate=cfg['init_lr'],
         t_period=cfg['epoch'] * steps_per_epoch, lr_min=cfg['lr_min'])
-    optimizer = tf.keras.optimizers.SGD(
-        learning_rate=learning_rate, momentum=cfg['momentum'])
-    optimizer_arch = tf.keras.optimizers.Adam(
-        learning_rate=cfg['arch_learning_rate'], beta_1=0.5, beta_2=0.999)
+
+    weight_decay = CosineAnnealingWD(
+        initial_wd=cfg['init_weights_decay'],
+        t_period=cfg['epoch'] * steps_per_epoch, wd_min=cfg['min_weights_decay'])
+
+    optimizer = SGDW(
+        learning_rate=learning_rate, weight_decay=weight_decay, clipnorm=cfg["grad_clip"], momentum=cfg['momentum'])
+    optimizer_arch = AdamW(
+        learning_rate=cfg['arch_learning_rate'], weight_decay=cfg['arch_weight_decay'], beta_1=0.5, beta_2=0.999)
 
     # define losses function
     criterion = CrossEntropyLoss()
@@ -86,7 +92,6 @@ def main(_):
             logits = sna.model((inputs, *sna.arch_parameters), training=True)
 
             losses = {}
-            losses['reg'] = tf.reduce_sum(sna.model.losses)
             losses['ce'] = criterion(labels, logits)
             total_loss = tf.add_n([l for l in losses.values()])
 
@@ -103,8 +108,6 @@ def main(_):
             logits = sna.model((inputs, *sna.arch_parameters), training=True)
 
             losses = {}
-            losses['reg'] = cfg['arch_weight_decay'] * tf.add_n(
-                [tf.reduce_sum(p ** 2) for p in sna.arch_parameters])
             losses['ce'] = criterion(labels, logits)
             total_loss = tf.add_n([l for l in losses.values()])
 
