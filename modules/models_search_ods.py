@@ -151,10 +151,10 @@ class SearchODSNetArch(object):
     def __init__(self, cfg, steps=4, multiplier=4, stem_multiplier=3,
                  name='SearchModel'):
 
-        self.input_size = self.cfg['input_size']
-        self.init_channels = self.cfg['init_channels']
-        self.cell_layers = self.cfg['layers']
-        self.classes = self.cfg['num_classes']
+        self.input_size = cfg['input_size']
+        self.init_channels = cfg['init_channels']
+        self.cell_layers = cfg['layers']
+        self.classes = cfg['num_classes']
         self.steps = steps
         self.multiplier = multiplier
         self.stem_multiplier = stem_multiplier
