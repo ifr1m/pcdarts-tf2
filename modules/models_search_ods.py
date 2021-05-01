@@ -6,7 +6,7 @@ from tensorflow.keras.layers import (Input, Dense, Flatten, Conv2D, MaxPool2D,
 
 from modules.genotypes import PRIMITIVES, Genotype
 from modules.operations import (OPS, FactorizedReduce, ReLUConvBN,
-                                BatchNormalization, kernel_init, regularizer)
+                                BatchNormalization, kernel_init)
 
 
 def channel_shuffle(x, groups):
