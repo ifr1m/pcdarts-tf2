@@ -25,21 +25,32 @@ def channel_shuffle(x, groups):
 class MixedOP(tf.keras.layers.Layer):
     """Mixed OP"""
 
-    def __init__(self, ch, strides, wd, name='MixedOP', **kwargs):
+    def __init__(self, ch, strides, name='MixedOP', **kwargs):
         super(MixedOP, self).__init__(name=name, **kwargs)
 
+        self.ch = ch
+        self.strides = strides
         self._ops = []
         self.mp = MaxPool2D(2, strides=2, padding='valid')
 
         for primitive in PRIMITIVES:
-            op = OPS[primitive](ch // 2, strides, wd, False)
+            op = OPS[primitive](self.ch // 2, self.strides, False)
 
             if 'pool' in primitive:
                 op = Sequential([op, BatchNormalization(affine=False)])
 
             self._ops.append(op)
 
-    def call(self, x, weights):
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            "ch": self.ch,
+            "strides": self.strides
+        })
+        return config
+
+    def call(self, inputs, **kwargs):
+        x, weights = inputs
         # channel proportion k = 4
         x_1 = x[:, :, :, :x.shape[3] // 2]
         x_2 = x[:, :, :, x.shape[3] // 2:]
@@ -61,28 +72,42 @@ class MixedOP(tf.keras.layers.Layer):
 class Cell(tf.keras.layers.Layer):
     """Cell Layer"""
 
-    def __init__(self, steps, multiplier, ch, reduction, reduction_prev, wd,
+    def __init__(self, steps, multiplier, ch, reduction, reduction_prev,
                  name='Cell', **kwargs):
         super(Cell, self).__init__(name=name, **kwargs)
 
-        self.wd = wd
         self.steps = steps
         self.multiplier = multiplier
+        self.ch = ch
+        self.reduction = reduction
+        self.reduction_prev = reduction_prev
 
-        if reduction_prev:
-            self.preprocess0 = FactorizedReduce(ch, wd=wd, affine=False)
+        if self.reduction_prev:
+            self.preprocess0 = FactorizedReduce(self.ch, affine=False)
         else:
-            self.preprocess0 = ReLUConvBN(ch, k=1, s=1, wd=wd, affine=False)
-        self.preprocess1 = ReLUConvBN(ch, k=1, s=1, wd=wd, affine=False)
+            self.preprocess0 = ReLUConvBN(self.ch, k=1, s=1, affine=False)
+        self.preprocess1 = ReLUConvBN(self.ch, k=1, s=1, affine=False)
 
         self._ops = []
         for i in range(self.steps):
             for j in range(2 + i):
-                strides = 2 if reduction and j < 2 else 1
-                op = MixedOP(ch, strides=strides, wd=wd)
+                strides = 2 if self.reduction and j < 2 else 1
+                op = MixedOP(self.ch, strides=strides)
                 self._ops.append(op)
 
-    def call(self, s0, s1, weights, edge_weights):
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            "steps": self.steps,
+            "multiplier": self.multiplier,
+            "ch": self.ch,
+            "reduction": self.reduction,
+            "reduction_prev": self.reduction_prev
+        })
+        return config
+
+    def call(self, inputs, **kwargs):
+        s0, s1, weights, edge_weights = inputs
         s0 = self.preprocess0(s0)
         s1 = self.preprocess1(s1)
 
@@ -91,7 +116,7 @@ class Cell(tf.keras.layers.Layer):
         for _ in range(self.steps):
             s = 0
             for j, h in enumerate(states):
-                branch = self._ops[offset + j](h, weights[offset + j])
+                branch = self._ops[offset + j]((h, weights[offset + j]))
                 s += edge_weights[offset + j] * branch
             offset += len(states)
             states.append(s)
@@ -107,7 +132,14 @@ class SplitSoftmax(tf.keras.layers.Layer):
         self.size_splits = size_splits
         self.soft_max_func = Softmax(axis=-1)
 
-    def call(self, value):
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            "size_splits": self.size_splits
+        })
+        return config
+
+    def call(self, value, **kwargs):
         return tf.concat(
             [self.soft_max_func(t) for t in tf.split(value, self.size_splits)],
             axis=0)
@@ -118,7 +150,11 @@ class SearchODSNetArch(object):
 
     def __init__(self, cfg, steps=4, multiplier=4, stem_multiplier=3,
                  name='SearchModel'):
-        self.cfg = cfg
+
+        self.input_size = self.cfg['input_size']
+        self.init_channels = self.cfg['init_channels']
+        self.cell_layers = self.cfg['layers']
+        self.classes = self.cfg['num_classes']
         self.steps = steps
         self.multiplier = multiplier
         self.stem_multiplier = stem_multiplier
@@ -151,14 +187,8 @@ class SearchODSNetArch(object):
         """Model"""
         logging.info(f"buliding {self.name}...")
 
-        input_size = self.cfg['input_size']
-        ch_init = self.cfg['init_channels']
-        layers = self.cfg['layers']
-        num_cls = self.cfg['num_classes']
-        wd = self.cfg['weights_decay']
-
         # define model
-        inputs = Input([input_size, input_size, 3], name='input_image')
+        inputs = Input([self.input_size, self.input_size, 3], name='input_image')
         alphas_normal = Input([None], name='alphas_normal')
         alphas_reduce = Input([None], name='alphas_reduce')
         betas_normal = Input([], name='betas_normal')
@@ -173,30 +203,27 @@ class SearchODSNetArch(object):
         betas_normal_weights = SplitSoftmax(
             range(2, 2 + self.steps), name='BetasNormalSoftmax')(betas_normal)
 
-        ch_curr = self.stem_multiplier * ch_init
+        ch_curr = self.stem_multiplier * self.init_channels
         s0 = Sequential(
             [
                 Conv2D(filters=ch_curr // 2, kernel_size=3, strides=2, padding='same',
-                       kernel_initializer=kernel_init(),
-                       kernel_regularizer=regularizer(wd), use_bias=False),
+                       kernel_initializer=kernel_init(), use_bias=False),
                 BatchNormalization(affine=True),
                 Conv2D(filters=ch_curr // 2, kernel_size=3, strides=2, padding='same',
-                       kernel_initializer=kernel_init(),
-                       kernel_regularizer=regularizer(wd), use_bias=False),
+                       kernel_initializer=kernel_init(), use_bias=False),
                 BatchNormalization(affine=True),
             ],
             name='stem0')(inputs)
 
         s1 = Sequential([
-            Conv2D(filters=ch_curr, kernel_size=3, strides=1, padding='same',
-                   kernel_initializer=kernel_init(),
-                   kernel_regularizer=regularizer(wd), use_bias=False),
+            Conv2D(filters=ch_curr, kernel_size=3, strides=2, padding='same',
+                   kernel_initializer=kernel_init(), use_bias=False),
             BatchNormalization(affine=True)], name='stem1')(s0)
 
-        ch_curr = ch_init
-        reduction_prev = False
-        for layer_index in range(layers):
-            if layer_index in [layers // 3, 2 * layers // 3]:
+        ch_curr = self.init_channels
+        reduction_prev = True
+        for layer_index in range(self.cell_layers):
+            if layer_index in [self.cell_layers // 3, 2 * self.cell_layers // 3]:
                 ch_curr *= 2
                 reduction = True
                 weights = alphas_reduce_weights
@@ -207,15 +234,15 @@ class SearchODSNetArch(object):
                 edge_weights = betas_normal_weights
 
             cell = Cell(self.steps, self.multiplier, ch_curr, reduction,
-                        reduction_prev, wd, name=f'Cell_{layer_index}')
-            s0, s1 = s1, cell(s0, s1, weights, edge_weights)
+                        reduction_prev, name=f'Cell_{layer_index}')
+            s0, s1 = s1, cell((s0, s1, weights, edge_weights))
 
             reduction_prev = reduction
 
         fea = GlobalAveragePooling2D()(s1)
 
-        logits = Dense(num_cls, kernel_initializer=kernel_init(),
-                       kernel_regularizer=regularizer(wd))(Flatten()(fea))
+        logits = Dense(self.classes, kernel_initializer=kernel_init())(Flatten()(fea))
+
 
         return Model(
             (inputs, alphas_normal, alphas_reduce, betas_normal, betas_reduce),

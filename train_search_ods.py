@@ -127,7 +127,11 @@ def main(_):
         epochs = ((steps - 1) // steps_per_epoch) + 1
 
         if epochs > cfg['start_search_epoch']:
-            inputs_val, labels_val = next(iter(val_dataset))
+            try:
+                inputs_val, labels_val = next(valid_queue_iter)
+            except:
+                valid_queue_iter = iter(val_dataset)
+                inputs_val, labels_val = next(valid_queue_iter)
             arch_losses = train_step_arch(inputs_val, labels_val)
 
         logits, total_loss, losses = train_step(inputs, labels)
