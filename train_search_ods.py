@@ -3,9 +3,12 @@ import os
 import tensorflow as tf
 from absl import app, flags, logging
 from absl.flags import FLAGS
+from tensorflow.python.keras.engine import data_adapter
 from tensorflow_addons.optimizers import SGDW, AdamW
+from tensorflow.keras.losses import CategoricalCrossentropy
+from tensorflow.keras.metrics import CategoricalAccuracy
 
-from modules.dataset import load_hyperkvasir_dataset
+from dataset.dataset_definition import HyperkvasirLISearch
 from modules.losses import CrossEntropyLoss
 from modules.lr_scheduler import CosineAnnealingLR, CosineAnnealingWD
 from modules.models_search_ods import SearchODSNetArch
@@ -36,18 +39,15 @@ def main(_):
     print("param size = {:f}MB".format(count_parameters_in_MB(sna.model)))
 
     # load dataset
-    t_split = "split_0"
-    v_split = "split_1"
+    fold_mapping = {"train": "split_0[:2%]", "val": "split_1[:2%]"}
 
-    train_dataset, _, dataset_len = load_hyperkvasir_dataset(cfg['batch_size'], split=t_split, shuffle=True,
-                                                             drop_remainder=True,
-                                                             repeat=True)
-    val_dataset, _, _ = load_hyperkvasir_dataset(cfg['batch_size'], split=v_split, shuffle=True, drop_remainder=True,
-                                                 repeat=True)
+    splits = HyperkvasirLISearch(1, fold_mapping=fold_mapping).get_splits(cfg['batch_size'])
+
+    train_dataset = splits.train_split
+    val_dataset = splits.val_split
 
     # define optimizer
-    steps_per_epoch = int(
-        dataset_len * cfg['train_portion'] // cfg['batch_size'])
+    steps_per_epoch = int(splits.train_split_size // cfg['batch_size'])
     learning_rate = CosineAnnealingLR(
         initial_learning_rate=cfg['init_lr'],
         t_period=cfg['epoch'] * steps_per_epoch, lr_min=cfg['lr_min'])
@@ -62,7 +62,9 @@ def main(_):
         learning_rate=cfg['arch_learning_rate'], weight_decay=cfg['arch_weight_decay'], beta_1=0.5, beta_2=0.999)
 
     # define losses function
-    criterion = CrossEntropyLoss()
+    # criterion = CrossEntropyLoss()
+    criterion = CategoricalCrossentropy()
+
 
     # load checkpoint
     checkpoint_dir = './checkpoints/' + cfg['sub_name']
@@ -96,7 +98,6 @@ def main(_):
             total_loss = tf.add_n([l for l in losses.values()])
 
         grads = tape.gradient(total_loss, sna.model.trainable_variables)
-        grads = [(tf.clip_by_norm(grad, cfg['grad_clip'])) for grad in grads]
         optimizer.apply_gradients(zip(grads, sna.model.trainable_variables))
 
         return logits, total_loss, losses
@@ -123,32 +124,35 @@ def main(_):
     prog_bar = ProgressBar(steps_per_epoch,
                            checkpoint.step.numpy() % steps_per_epoch)
 
-    train_acc = AvgrageMeter()
-    for inputs, labels in train_dataset.take(remain_steps):
+    train_acc = CategoricalAccuracy()
+    for inputs in train_dataset.take(remain_steps):
+        x_net, y_net, sample_weight_net = _unpack_x_y_sample_weight(inputs[0])
+        x_arch, y_arch = inputs[1]
+        start_arch_training = inputs[2]
+
         checkpoint.step.assign_add(1)
         steps = checkpoint.step.numpy()
         epochs = ((steps - 1) // steps_per_epoch) + 1
 
-        if epochs > cfg['start_search_epoch']:
-            try:
-                inputs_val, labels_val = next(valid_queue_iter)
-            except:
-                valid_queue_iter = iter(val_dataset)
-                inputs_val, labels_val = next(valid_queue_iter)
-            arch_losses = train_step_arch(inputs_val, labels_val)
+        def f1():
+            return train_step_arch(x_arch, y_arch)
 
-        logits, total_loss, losses = train_step(inputs, labels)
-        train_acc.update(
-            accuracy(logits.numpy(), labels.numpy())[0], cfg['batch_size'])
+        def f2():
+            return 0.
+
+        arch_losses = tf.cond(tf.equal(start_arch_training, 1), f1, f2)
+
+        logits, total_loss, losses = train_step(x_net, y_net)
+        train_acc.update_state(logits.numpy(), y_net.numpy())
 
         prog_bar.update(
             "epoch={:d}/{:d}, loss={:.4f}, acc={:.2f}, lr={:.2e}".format(
-                epochs, cfg['epoch'], total_loss.numpy(), train_acc.avg,
+                epochs, cfg['epoch'], total_loss.numpy(), train_acc.result().numpy(),
                 optimizer.lr(steps).numpy()))
 
         if steps % 10 == 0:
             with summary_writer.as_default():
-                tf.summary.scalar('acc/train', train_acc.avg, step=steps)
+                tf.summary.scalar('acc/train', train_acc.result().numpy(), step=steps)
 
                 tf.summary.scalar(
                     'loss/total_loss', total_loss, step=steps)
@@ -170,7 +174,7 @@ def main(_):
                 manager.latest_checkpoint))
 
         if steps % steps_per_epoch == 0:
-            train_acc.reset()
+            train_acc.reset_states()
             if epochs > cfg['start_search_epoch']:
                 genotype = sna.get_genotype()
                 print(f"\nsearch arch: {genotype}")
@@ -182,6 +186,11 @@ def main(_):
     manager.save()
     print("\n[*] training done! save ckpt file at {}".format(
         manager.latest_checkpoint))
+
+
+def _unpack_x_y_sample_weight(data):
+    data = data_adapter.expand_1d(data)
+    return data_adapter.unpack_x_y_sample_weight(data)
 
 
 if __name__ == '__main__':

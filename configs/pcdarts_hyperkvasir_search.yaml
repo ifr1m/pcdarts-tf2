@@ -1,5 +1,5 @@
 # general setting
-batch_size: 64
+batch_size: 32
 input_size: 224
 init_channels: 16
 layers: 8
