@@ -39,7 +39,7 @@ def main(_):
     print("param size = {:f}MB".format(count_parameters_in_MB(sna.model)))
 
     # load dataset
-    fold_mapping = {"train": "split_0[:2%]", "val": "split_1[:2%]"}
+    fold_mapping = {"train": "split_0", "val": "split_1"}
 
     splits = HyperkvasirLISearch(1, fold_mapping=fold_mapping).get_splits(cfg['batch_size'])
 
