@@ -9,7 +9,7 @@ from tensorflow.keras.losses import CategoricalCrossentropy
 from tensorflow.keras.metrics import CategoricalAccuracy
 
 from dataset.dataset_definition import HyperkvasirLISearch
-from modules.losses import CrossEntropyLoss
+from modules.losses import CrossEntropyLoss, CategoricalCrossEntropyLoss
 from modules.lr_scheduler import CosineAnnealingLR, CosineAnnealingWD
 from modules.models_search_ods import SearchODSNetArch
 from modules.utils import (
@@ -40,6 +40,7 @@ def main(_):
 
     # load dataset
     fold_mapping = {"train": "split_0", "val": "split_1"}
+    # fold_mapping = {"train": "split_0[:2%]", "val": "split_1[:2%]"}
 
     splits = HyperkvasirLISearch(1, fold_mapping=fold_mapping).get_splits(cfg['batch_size'])
 
@@ -62,8 +63,8 @@ def main(_):
         learning_rate=cfg['arch_learning_rate'], weight_decay=cfg['arch_weight_decay'], beta_1=0.5, beta_2=0.999)
 
     # define losses function
-    # criterion = CrossEntropyLoss()
-    criterion = CategoricalCrossentropy()
+    criterion = CategoricalCrossEntropyLoss()
+    # criterion = CategoricalCrossentropy()
 
 
     # load checkpoint

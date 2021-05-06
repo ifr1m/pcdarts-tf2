@@ -10,3 +10,13 @@ def CrossEntropyLoss():
 
         return tf.reduce_mean(ce)
     return cross_entropy_loss
+
+
+def CategoricalCrossEntropyLoss():
+    """"cross entropy loss"""
+    def cross_entropy_loss(y_true, y_pred):
+        ce = tf.nn.softmax_cross_entropy_with_logits(labels=y_true,
+                                                            logits=y_pred)
+
+        return tf.reduce_mean(ce)
+    return cross_entropy_loss
